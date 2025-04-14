@@ -1,4 +1,3 @@
-
 from typing import Any
 from collections import OrderedDict
 import torch.utils.checkpoint as checkpoint
@@ -41,10 +40,10 @@ class SS2Dv1:
     ):
         r"""
         Arg:
-            d_model: 模型的输出维度（默认为96）。
-            d_state: 状态维度（默认为16）。
-            ssm_ratio: 状态维度与模型维度的比率（默认为2.0）。
-            dt_rank: 动态时间参数的维度，默认为“auto”，会根据 d_model 计算
+            d_model: The output dimension of the model (default is 96).
+            d_state: The state dimension (default is 16).
+            ssm_ratio: The ratio of the state dimension to the model dimension (default is 2.0).
+            dt_rank: The dimension of the dynamic time parameter, which is calculated based on d_model if set to "auto"
         """
 
         if "channel_first" in kwargs:
@@ -58,7 +57,7 @@ class SS2Dv1:
         bias = False
         conv_bias = True
         d_conv = 3
-        k_group = 4     # 扫描方向
+        k_group = 4     # Scanning direction
         self.k_group = k_group
         self.dim = d_model
         self.windows_size = windows_size
@@ -73,7 +72,7 @@ class SS2Dv1:
         if not force_fp32:
             self.forward = partial(self.forwardv0, force_fp32=False)
 
-        # self.selective_scan = selective_scan_fn  # 选择性扫描（加速）
+        # self.selective_scan = selective_scan_fn  # Selective scanning (acceleration)
 
         # in proj ============================
         self.in_proj = nn.Linear(d_model, d_inner * 2, bias=bias)
@@ -143,14 +142,14 @@ class SS2Dv1:
         L = H * W
 
         # locality = torch.zeros((B, 1, H, W))
-        # # 填充矩阵中的1
+        # # Fill in the 1s in the matrix
         # locality[:, :, ::2, ::3] = 1
         #
         # one_masks, zero_masks = self.WMR(x, locality)
         # x = torch.cat((one_masks, zero_masks), dim=0)
         # x = rearrange(x, '(B C H W) -> B C H W', B=B, C=D, W=W)
 
-        """ local遍历路径 """
+        """ Local traversal path """
         # partition
         xs = window_partition(x, self.windows_size)                               # (b, local, local, c)
         trans_xs = torch.transpose(x, dim0=2, dim1=3)
@@ -159,26 +158,26 @@ class SS2Dv1:
         # xs = rearrange(xs, 'b c n m h w -> b c (n m h w)')
         # trans_xs = rearrange(trans_xs, 'b c n m h w -> b c (n m h w)')
 
-        # # 堆叠输入张量 x 的两个视角（原始和转置）, [b, 2, d, l]
+        # # Stack the two views of the input tensor x (original and transposed), [b, 2, d, l]
 
         xs = rearrange(xs, '(b n) c h w -> b c (n h w)', b=B)
         trans_xs = rearrange(trans_xs, '(b n) c h w -> b c (n h w)', b=B)
         x_hwwh = torch.stack([xs, trans_xs], dim=1).view(B, 2, -1, L)
-        # 拼接 x_hwwh 和 其翻转
+        # Concatenate x_hwwh and its reverse
         xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1)  # (b, k, d, l)
 
-        # 选择性扫描
+        # Selective scanning
         out_y = self.mambaScanner(xs)
 
-        # """ 四种遍历路径叠加 (Mamba之后) """
-        # token位置还原
+        # """ Overlay of four traversal paths (after Mamba) """
+        # Restore token position
         inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
         wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
         invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        # 四种状态叠加
+        # Overlay of four states
         y = self.gamma1.view(1, self.dim, 1) * out_y[:, 0] + self.gamma2.view(1, self.dim, 1) * inv_y[:, 0] + self.gamma3.view(1, self.dim, 1) * wh_y + self.gamma4.view(1, self.dim, 1) * invwh_y
 
-        # 还原形状
+        # Restore shape
         y = rearrange(y, 'b c (n m h w) -> b n m h w c', n=H // self.windows_size, h=self.windows_size, w=self.windows_size)
         y = y.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, L, -1)
 
@@ -187,7 +186,7 @@ class SS2Dv1:
         gc = self.fc(gc).view(B, 1, D)
         y = y * gc
 
-        # 正则输出
+        # Regular output
         y = self.out_norm(y).view(B, H, W, -1)
         # z是一个门控（SiLU激活分支）
         y = y * z
@@ -216,12 +215,12 @@ class SS2Dv0:
             windows_size=4,
             **kwargs,
     ):
-        r""" V-Mamba-v0 框架
-        Arg:
-            d_model: 模型的输出维度（默认为96）。
-            d_state: 状态维度（默认为16）。
-            ssm_ratio: 状态维度与模型维度的比率（默认为2.0）。
-            dt_rank: 动态时间参数的维度，默认为“auto”，会根据 d_model 计算
+        r""" V-Mamba-v0 framework
+            Arg:
+            d_model: The output dimension of the model (default is 96).
+            d_state: The state dimension (default is 16).
+            ssm_ratio: The ratio of the state dimension to the model dimension (default is 2.0).
+            dt_rank: The dimension of the dynamic time parameter, which is calculated based on d_model if set to "auto"
         """
 
         if "channel_first" in kwargs:
@@ -236,7 +235,7 @@ class SS2Dv0:
         bias = False
         conv_bias = True
         d_conv = 3
-        k_group = 2     # 扫描方向
+        k_group = 2     # Scanning direction
         self.k_group = k_group
         self.dim = d_model
         self.windows_size = windows_size
@@ -252,7 +251,7 @@ class SS2Dv0:
         if not force_fp32:
             self.forward = partial(self.forwardv0, force_fp32=False)
 
-        # self.selective_scan = selective_scan_fn  # 选择性扫描（加速）
+        # self.selective_scan = selective_scan_fn  # Selective scanning (acceleration)
 
         # in proj ============================
         self.in_proj = nn.Linear(d_model, d_inner * 2, bias=bias)
@@ -323,39 +322,39 @@ class SS2Dv0:
 
         B, D, H, W = x.shape
 
-        """ 掩码矩阵初始化 """
+        """ Initialization of the mask matrix """
         locality = torch.zeros((B, 1, H, W)).to(x.device)
-        locality[:, :, ::self.windows_size * 4, ::self.windows_size * 4] = 1    # 固定步幅标记
+        locality[:, :, ::self.windows_size * 4, ::self.windows_size * 4] = 1    # Fixed stride marking
 
         one_masks, zero_masks = self.WMR(x, locality.requires_grad_(True))   # one_masks:(B, C, nW*window_size*window_size)
 
-        """ Ouroboros衔尾操作 """
+        """ Ouroboros operation """
         first_elements = one_masks[:, 0, :].unsqueeze(dim=1)
         xs = torch.cat((one_masks, first_elements), dim=1)
 
         B, W_S, N = xs.shape
         xs = rearrange(xs, 'b w (c n) -> b c (w n)', c=D, w=W_S).unsqueeze(dim=1)
 
-        """ 两种不同的遍历路径 """
+        """ Two different traversal paths """
         xs = torch.cat([xs, torch.flip(xs, dims=[-1])], dim=1)  # (B, 2, C, nW*window_size*window_size)
 
-        # 选择性扫描
+        # Selective scanning
         out_y = self.mambaScanner(xs)
 
-        # 去除多余的token
+        # Remove redundant tokens
         out_y = rearrange(out_y, "b k c (w n) -> b k w (c n)", w=W_S)[:,:,:W_S-1,:]
         out_y = rearrange(out_y, "b k w (c n) -> b k c (w n)", c=D)
 
-        # """ 两种遍历路径叠加 (Mamba之后) """
-        # token位置还原
+        # """ Overlay of two traversal paths (after Mamba) """
+        # Restore token position
         inv_y = torch.flip(out_y[:, 1:2], dims=[-1])
-        # 四种状态叠加, 添加 投影权重
+        # Overlay of four states, add projection weights
         y = inv_y[:, 0] + out_y[:, 0]           # (B, C, nW*window_size*window_size)
 
         # y = (self.gamma1.view(1, self.dim, 1) * out_y_[:, 0] + self.gamma2.view(1, self.dim, 1) * inv_y[:, 0]
         #      + self.gamma3.view(1, self.dim, 1) * wh_y + self.gamma4.view(1, self.dim, 1) * invwh_y
 
-        # 还原形状，方便输出
+        # Restore shape for output
         y = y.transpose(dim0=1, dim1=2).contiguous()
 
         # # # Local Aggregate
@@ -379,20 +378,19 @@ class SS2Dv0:
         background_feature = self.gap(zero_masks)
         channel_feature = torch.cat([foreground_feature, background_feature], dim=1).transpose(dim0=1, dim1=2)
         channel_weight = self.fc(channel_feature)
-
+    
         LA_Att = LA_Att * channel_weight
-
-        # 正则输出
+    
+        # Regular output
         y = self.out_norm(LA_Att).view(B, H, W, -1)
         y = y + z
         # y = torch.cat([y, z],dim=-1)
         # y = rearrange(y, "b h w c -> b c h w")
-        # z是一个门控（SiLU激活分支）
+        # z is a gate (SiLU activated branch)
         # y = y * z
         out = self.dropout(self.out_proj(y))
         # out = rearrange(out, "b c h w -> b h w c")
         return out
-
 
 class SS2D(nn.Module, SS2Dv0, SS2Dv1):
     def __init__(
@@ -424,23 +422,23 @@ class SS2D(nn.Module, SS2Dv0, SS2Dv1):
             # ======================
             **kwargs,
     ):
-        r""" 初始化 SS2D
+        r""" Initialize SS2D
         Arg:
-            d_model, d_state: 模型的维度和状态维度，影响特征表示的大小
-            ssm_ratio: 状态空间模型的比例，可能影响模型的复杂度
-            dt_rank: 时间步长的秩，控制时间序列的处理方式
-            act_layer: 激活函数，默认为 SiLU（Sigmoid Linear Unit）
-            d_conv: 卷积层的维度，值小于 2 时表示不使用卷积
-            conv_bias: 是否使用卷积偏置项
-            dropout: dropout 概率，用于防止过拟合
-            bias: 是否在模型中使用偏置项
-            dt_min, dt_max: 时间步长的最小和最大值
-            dt_init: 时间步长的初始化方式，可以为 "random" 等
-            dt_scale, dt_init_floor: 影响时间步长的缩放和下限
-            initialize: 指定初始化方法
-            forward_type: 决定前向传播的实现方式，支持多种类型
-            channel_first: 指示是否使用通道优先的格式
-            **kwargs: 允许传递额外参数，方便扩展
+            d_model, d_state: The model dimension and state dimension, affecting the size of feature representation
+            ssm_ratio: The ratio of the state space model, which may affect the complexity of the model
+            dt_rank: The rank of the dynamic time step, controlling the processing of time series
+            act_layer: The activation function, defaulting to SiLU (Sigmoid Linear Unit)
+            d_conv: The dimension of the convolution layer, with values less than 2 indicating no convolution
+            conv_bias: Whether to use convolution bias
+            dropout: Dropout probability to prevent overfitting
+            bias: Whether to use bias in the model
+            dt_min, dt_max: The minimum and maximum values of the dynamic time step
+            dt_init: The initialization method of the dynamic time step, which can be "random", etc.
+            dt_scale, dt_init_floor: Affecting the scaling and lower limit of the dynamic time step
+            initialize: Specifying the initialization method
+            forward_type: Determining the implementation of the forward propagation, supporting multiple types
+            channel_first: Indicating whether to use channel-first format
+            **kwargs: Allowing additional parameters to be passed for easy expansion
         """
         nn.Module.__init__(self)
         kwargs.update(
@@ -450,7 +448,7 @@ class SS2D(nn.Module, SS2Dv0, SS2Dv1):
             initialize=initialize, forward_type=forward_type, channel_first=channel_first,
         )
 
-        # 调用不同的初始化函数
+        # Call different initialization functions
         if forward_type in ["v0", "v0seq"]:
             self.__initv0__(seq=("seq" in forward_type), **kwargs)
         else:
@@ -488,32 +486,32 @@ class VSSBlock(nn.Module):
             _SS2D: type = SS2D,
             **kwargs,
     ):
-        r""" VMamba整体架构
+        r""" VMamba overall architecture
         Arg:
-            维度变换参数:
-                hidden_dim: 输入和输出的特征维度
-                drop_path: 用于随机丢弃路径的概率，防止过拟合
-                norm_layer: 归一化层，默认为 LayerNorm
-                channel_first: 数据格式，指示是否采用通道优先
-            SSM相关参数:
-                ssm_d_state: 状态空间模型的状态维度
-                ssm_ratio: 决定是否使用 SSM 的比例
-                ssm_dt_rank: 时间步长的秩
-                ssm_act_layer: SSM 的激活函数，默认为 SiLU
-                ssm_conv: 卷积层的大小
-                ssm_conv_bias: 是否使用卷积偏置
-                ssm_drop_rate: SSM 中的 dropout 概率
-                ssm_init: SSM 的初始化方式
-                forward_type: 决定前向传播的实现方式
-            MLP相关参数:
-                mlp_ratio: MLP 隐藏层与输入层的维度比率
-                mlp_act_layer: MLP 的激活函数，默认为 GELU
-                mlp_drop_rate: MLP 中的 dropout 概率
-                gmlp: 是否使用 GMLP 结构
-            其他参数:
-                use_checkpoint: 是否使用梯度检查点以节省内存
-                post_norm: 是否在添加残差连接后进行归一化
-                _SS2D: 状态空间模型的类类型
+            Dimension transformation parameters:
+                hidden_dim: The feature dimension of input and output
+                drop_path: The probability used for random path dropping to prevent overfitting
+                norm_layer: The normalization layer, defaulting to LayerNorm
+                channel_first: Data format, indicating whether to use channel-first
+            SSM-related parameters:
+                ssm_d_state: The state dimension of the state space model
+                ssm_ratio: The ratio determining whether to use SSM
+                ssm_dt_rank: The rank of the dynamic time step
+                ssm_act_layer: The activation function of SSM, defaulting to SiLU
+                ssm_conv: The size of the convolution layer
+                ssm_conv_bias: Whether to use convolution bias
+                ssm_drop_rate: The dropout probability in SSM
+                ssm_init: The initialization method of SSM
+                forward_type: Determining the implementation of the forward propagation
+            MLP-related parameters:
+                mlp_ratio: The ratio of the hidden layer to the input layer in MLP
+                mlp_act_layer: The activation function of MLP, defaulting to GELU
+                mlp_drop_rate: The dropout probability in MLP
+                gmlp: Whether to use GMLP structure
+            Other parameters:
+                use_checkpoint: Whether to use gradient checkpointing to save memory
+                post_norm: Whether to normalize after adding the residual connection
+                _SS2D: The class type of the state space model
         """
 
         super().__init__()
@@ -522,7 +520,7 @@ class VSSBlock(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.post_norm = post_norm
 
-        ''' SSM模块, 初始化设置为 V0 版本 '''
+        ''' SSM module, initialized as V0 version '''
         if self.ssm_branch:
             self.norm = norm_layer(hidden_dim)
             self.op = _SS2D(
@@ -582,7 +580,7 @@ class VSSBlock(nn.Module):
             return self._forward(input)
 
 
-# 主函数
+# main function
 class LASSM(nn.Module):
     def __init__(
             self,
@@ -680,7 +678,7 @@ class LASSM(nn.Module):
                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                 use_checkpoint=use_checkpoint,
                 norm_layer=norm_layer,
-                downsample=downsample,                  # 有三个版本的下采样
+                downsample=downsample,                  
                 channel_first=self.channel_first,
                 # =================
                 ssm_d_state=ssm_d_state,
@@ -851,14 +849,14 @@ class LASSM(nn.Module):
         if self.pos_embed is not None:
             pos_embed = self.pos_embed.permute(0, 2, 3, 1) if not self.channel_first else self.pos_embed
             x = x + pos_embed
-        ''' 堆叠模块 '''
-        x_ = []
+        ''' stack '''
+        x_list = []
         for layer in self.layers:
             x_.append(rearrange(x, 'b h w c ->  b c h w'))
             x = layer(x)
 
         x = rearrange(x, 'b h w c ->  b c h w')
-        return x, x_
+        return x, x_list
 
 
 
@@ -875,7 +873,7 @@ if __name__ == "__main__":
         patch_norm=True, norm_layer="ln",
         downsample_version="v1", patchembed_version="v2",
         use_checkpoint=False, posembed=False, imgsize=320,
-    ) # 窗口大小必须为 20 的因数，因为最底层特征大小为 20*20
+    ) # 320,windows_size=5 or 10 or ...
 
     net.cuda().train()
 
@@ -893,31 +891,31 @@ if __name__ == "__main__":
 
     def calculate_fps(model, input_size, batch_size=1, num_iterations=100):
         t_all = []
-        # 模型设置为评估模式
+        # Set the model to evaluation mode
         model.eval()
-        # 模拟输入数据
-        input_data = torch.randn(batch_size, *input_size).to(device)  # 如果有GPU的话
-
-        # 运行推理多次
+        # Create dummy input data
+        input_data = torch.randn(batch_size, *input_size).to(device)  # If GPU is available
+        
+        # Run inference multiple times
         with torch.no_grad():
             for _ in range(num_iterations):
-                # 启动计时器
+                # Start the timer
                 start_time = time.time()
                 output = model(input_data)
-                # 计算总时间
+                # Calculate the total time
                 total_time = time.time() - start_time
                 t_all.append(total_time)
-
+        
         print('average time:', np.mean(t_all) / 1)
         print('average fps:', 1 / np.mean(t_all))
-
+        
         print('fastest time:', min(t_all) / 1)
         print('fastest fps:', 1 / min(t_all))
-
+        
         print('slowest time:', max(t_all) / 1)
         print('slowest fps:', 1 / max(t_all))
-
-
+        
+        
     calculate_fps(net, input_size=(96, 80, 80), batch_size=2, num_iterations=10)
 
 
