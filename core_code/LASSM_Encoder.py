@@ -215,7 +215,7 @@ class SS2Dv0:
             windows_size=4,
             **kwargs,
     ):
-        r""" V-Mamba-v0 framework
+        r"""
             Arg:
             d_model: The output dimension of the model (default is 96).
             d_state: The state dimension (default is 16).
