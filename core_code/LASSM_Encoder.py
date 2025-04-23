@@ -327,6 +327,9 @@ class SS2Dv0:
         locality[:, :, ::self.windows_size * 4, ::self.windows_size * 4] = 1    # Fixed stride marking
 
         one_masks, zero_masks = self.WMR(x, locality.requires_grad_(True))   # one_masks:(B, C, nW*window_size*window_size)
+        
+        one_masks = torch.autograd.Variable(one_masks, requires_grad=True)
+        zero_masks = torch.autograd.Variable(zero_masks, requires_grad=True)
 
         """ Ouroboros operation """
         first_elements = one_masks[:, 0, :].unsqueeze(dim=1)
