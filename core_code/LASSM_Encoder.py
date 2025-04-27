@@ -19,7 +19,7 @@ from models.configs.MambaScanner import mamba_init, MambaScanner
 from models.common import window_partition
 
 
-# SS2Dv1, local windows
+# SS2Dv1, localMamba
 class SS2Dv1:
     def __initv1__(
             self,
@@ -196,7 +196,7 @@ class SS2Dv1:
 
 
 
-# support: v0, v0seq
+# support: v0, v0seq，LASSM
 class SS2Dv0:
     def __initv0__(
             self,
