@@ -196,7 +196,7 @@ class SS2Dv1:
 
 
 
-# support: v0, v0seq，LASSM
+# support: v0, v0seq, LASSM
 class SS2Dv0:
     def __initv0__(
             self,
@@ -351,7 +351,7 @@ class SS2Dv0:
         # """ Overlay of two traversal paths (after Mamba) """
         # Restore token position
         inv_y = torch.flip(out_y[:, 1:2], dims=[-1])
-        # Overlay of four states, add projection weights
+        # Overlay of two states, add projection weights
         y = inv_y[:, 0] + out_y[:, 0]           # (B, C, nW*window_size*window_size)
 
         # y = (self.gamma1.view(1, self.dim, 1) * out_y_[:, 0] + self.gamma2.view(1, self.dim, 1) * inv_y[:, 0]
