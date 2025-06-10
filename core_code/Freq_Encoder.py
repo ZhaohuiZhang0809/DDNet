@@ -11,7 +11,7 @@ from models.common import DWConv, Dwt2d, DoubleConv
 
 
 # Five layers
-class Wavelet_Encoder(nn.Module):
+class Freq_Encoder(nn.Module):
     def __init__(self, in_channels=1, embed_dim=64):
         super().__init__()
         self.dwt = Dwt2d()
@@ -86,13 +86,13 @@ class Wavelet_Encoder(nn.Module):
 
 if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    net = Wavelet_Encoder(in_channels=1).to(device)
+    net = Freq_Encoder(in_channels=1).to(device)
     # Print network structure and parameters
     summary(net, (2, 1, 320, 320))
 
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    net = Wavelet_Encoder(in_channels=1).to(device)
+    net = Freq_Encoder(in_channels=1).to(device)
     inputs = torch.randn(1, 1, 320, 320).to(device)
     flops, params = profile(net, (inputs,))
     print("FLOPs=, params=", flops, params)
