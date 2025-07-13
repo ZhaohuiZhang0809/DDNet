@@ -27,12 +27,12 @@ class FreqSS2D(nn.Module):
             **kwargs,
     ):
         super(FreqSS2D, self).__init__()
-        r""" V-Mamba-v0 框架
-        Arg:
-            d_model: 模型的输出维度（默认为96）。
-            d_state: 状态维度（默认为16）。
-            ssm_ratio: 状态维度与模型维度的比率（默认为2.0）。
-            dt_rank: 动态时间参数的维度，默认为“auto”，会根据 d_model 计算
+        r""" V-Mamba-v0 Framework
+        Args:
+            d_model: Output dimension of the model (default: 96)
+            d_state: State dimension (default: 16)
+            ssm_ratio: Ratio of state dimension to model dimension (default: 2.0)
+            dt_rank: Dimension of dynamic time parameters, defaults to "auto" which calculates based on d_model
         """
 
         if "channel_first" in kwargs:
@@ -46,7 +46,7 @@ class FreqSS2D(nn.Module):
         bias = False
         conv_bias = True
         d_conv = 3
-        k_group = 4     # 扫描方向
+        k_group = 4     # Scanning direction
         self.k_group = k_group
         self.dim = d_model
 
@@ -55,7 +55,7 @@ class FreqSS2D(nn.Module):
         d_inner = int(ssm_ratio * d_model)
         dt_rank = math.ceil(d_model / 16) if dt_rank == "auto" else dt_rank
 
-        # self.selective_scan = selective_scan_fn  # 选择性扫描（加速）
+        # self.selective_scan = selective_scan_fn  # Selective scan (accelerated)
 
         # in proj ============================
         self.in_proj = nn.Linear(d_model, d_inner * 2, bias=bias)
@@ -110,27 +110,27 @@ class FreqSS2D(nn.Module):
         B, D, H, W = x.shape
         L = H * W
 
-        """ ll -> hh 遍历路径 """
+        """ Traversal path from ll -> hh """
         x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)],
                              dim=1).view(B, 2, -1, L)
-        # 拼接 x_hwwh 和 其翻转
+        # Concatenate x_hwwh with its flipped version
         xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1)  # (b, k, d, l)
 
         out_y = self.mambaScanner(xs)
 
-        # token位置还原
+        # Restore token positions
         inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
         wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
         invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        # 四种状态叠加
+        # Superposition of four states
         y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
 
-        # 还原形状，方便输出
+        # Restore shape for output
         y = y.transpose(dim0=1, dim1=2).contiguous()  # (B, L, C)
 
-        # 正则输出
+        # Normalized output
         y = self.out_norm(y).view(B, H, W, -1)
-        # z是一个门控（SiLU激活分支）
+        # z acts as a gating mechanism (SiLU activation branch)
         # y = y * z
         y = y + z
         # y = torch.cat([y, z],dim=-1)
@@ -150,13 +150,13 @@ class FreqMamba(nn.Module):
 
     def forward(self, x):
         ll, lh, hl, hh = torch.chunk(x, 4, dim=1)                       # b,c,h,w
-        # ll, lh, hl, hh 拼接
+        # Concatenate ll, lh, hl, hh
         wx = torch.cat([ll, lh], dim=3)
         wx = torch.cat([wx, torch.cat([hl, hh], dim=3)], dim=2)  # b,c,2h,2w
         wx = rearrange(wx, "b c h w -> b h w c")
         wx = self.FreqSS2D(wx)
 
-        # 裁切复原
+        # Crop and restore
         top, bottom = torch.chunk(wx, 2, dim=2)
         lx, wx_lh = torch.chunk(top, 2, dim=3)
         wx_hl, wx_hh = torch.chunk(bottom, 2, dim=3)
@@ -169,51 +169,3 @@ class FreqMamba(nn.Module):
         hx = torch.cat([wx_lh, wx_hl, wx_hh], dim=1)
 
         return lx, hx
-
-
-if __name__ == '__main__':
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    net = FreqMamba(dim = 96).to(device)
-
-    # 打印网络结构和参数
-    summary(net, (2, 96, 160, 160))
-
-    inputs = torch.randn(2, 96, 160, 160).cuda()
-    flops, params = profile(net, (inputs,))
-
-    print("FLOPs=, params=", flops, params)
-    print("FLOPs=", str(flops / 1e9) + '{}'.format("G"))
-    print("params=", str(params / 1e6) + '{}'.format("M"))
-
-    import time
-    import numpy as np
-
-
-    def calculate_fps(model, input_size, batch_size=1, num_iterations=100):
-        t_all = []
-        # 模型设置为评估模式
-        model.eval()
-        # 模拟输入数据
-        input_data = torch.randn(batch_size, *input_size).to(device)  # 如果有GPU的话
-
-        # 运行推理多次
-        with torch.no_grad():
-            for _ in range(num_iterations):
-                # 启动计时器
-                start_time = time.time()
-                output = model(input_data)
-                # 计算总时间
-                total_time = time.time() - start_time
-                t_all.append(total_time)
-
-        print('average time:', np.mean(t_all) / 1)
-        print('average fps:', 1 / np.mean(t_all))
-
-        print('fastest time:', min(t_all) / 1)
-        print('fastest fps:', 1 / min(t_all))
-
-        print('slowest time:', max(t_all) / 1)
-        print('slowest fps:', 1 / max(t_all))
-
-
-    calculate_fps(net, input_size=(96, 160, 160), batch_size=2, num_iterations=3)
