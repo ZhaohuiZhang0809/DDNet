@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from thop import profile
 from torch import nn
 from torchinfo import summary
@@ -14,22 +15,44 @@ class AdaptiveChannelSelection(nn.Module):
         self.Laplace = Laplace(dim=dim)
         self.gap = nn.AdaptiveAvgPool2d((1, 1))
 
+        # Define Gaussian kernel parameters
+        self.gaussian_kernel = self._get_gaussian_kernel(3, 1.0)
+        self.gaussian_conv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=False)
+        self._init_gaussian_weights()
+
         self.fc = nn.Sequential(
-            nn.Linear(dim, dim // ratio, bias=False),  # 从 c -> c/r
+            nn.Linear(dim * 2, dim * 2 // ratio, bias=False),  # Increased input dim for concatenated features
             nn.ReLU(),
-            nn.Linear(dim // ratio, dim, bias=False),  # 从 c/r -> c
+            nn.Linear(dim * 2 // ratio, dim, bias=False),  # Output remains dim to match original
             nn.Softmax(dim=-1)
         )
 
+    def _get_gaussian_kernel(self, kernel_size=3, sigma=1.0):
+        """Create 2D Gaussian kernel"""
+        x = torch.arange(-(kernel_size // 2), kernel_size // 2 + 1, dtype=torch.float)
+        gauss = torch.exp(-(x ** 2) / (2 * sigma ** 2))
+        kernel = gauss.unsqueeze(1) * gauss.unsqueeze(0)
+        return kernel / kernel.sum()
+
+    def _init_gaussian_weights(self):
+        """Initialize convolution weights with Gaussian kernel"""
+        with torch.no_grad():
+            self.gaussian_conv.weight.data = self.gaussian_kernel.repeat(self.gaussian_conv.out_channels, 1, 1, 1)
+
     def forward(self, x):
         b, c, h, w = x.size()
+
+        # Laplace branch
         x_h = self.Laplace(x)
-        c_w = self.gap(x_h).view(b, c)
+        # Gaussian branch
+        x_l = self.gaussian_conv(x)
+
+        c_x = torch.cat([x_l, x_h], dim=1)
+        c_w = self.gap(c_x).view(b, c * 2)
         c_w = self.fc(c_w).view(b, c, 1, 1)
         x = x * c_w + x
 
         return x
-
 
 
 class AFEM(nn.Module):
@@ -48,54 +71,3 @@ class AFEM(nn.Module):
         out = torch.cat((lx, hx), dim=1)
 
         return out
-
-
-
-
-if __name__ == '__main__':
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(device)
-    net = AFEM(dim = 384).to(device)
-
-    # 打印网络结构和参数
-    summary(net, (2, 384, 20, 20))
-
-    inputs = torch.randn(2, 384, 20, 20).cuda()
-    flops, params = profile(net, (inputs,))
-
-    print("FLOPs=, params=", flops, params)
-    print("FLOPs=", str(flops / 1e9) + '{}'.format("G"))
-    print("params=", str(params / 1e6) + '{}'.format("M"))
-
-    import time
-    import numpy as np
-
-
-    def calculate_fps(model, input_size, batch_size=1, num_iterations=100):
-        t_all = []
-        # 模型设置为评估模式
-        model.eval()
-        # 模拟输入数据
-        input_data = torch.randn(batch_size, *input_size).to(device)  # 如果有GPU的话
-
-        # 运行推理多次
-        with torch.no_grad():
-            for _ in range(num_iterations):
-                # 启动计时器
-                start_time = time.time()
-                output = model(input_data)
-                # 计算总时间
-                total_time = time.time() - start_time
-                t_all.append(total_time)
-
-        print('average time:', np.mean(t_all) / 1)
-        print('average fps:', 1 / np.mean(t_all))
-
-        print('fastest time:', min(t_all) / 1)
-        print('fastest fps:', 1 / min(t_all))
-
-        print('slowest time:', max(t_all) / 1)
-        print('slowest fps:', 1 / max(t_all))
-
-
-    calculate_fps(net, input_size=(384, 20, 20), batch_size=2, num_iterations=3)
