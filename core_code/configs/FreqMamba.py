@@ -9,7 +9,6 @@ from models.configs.MambaScanner import mamba_init, MambaScanner
 from models.common import Dwt2d, DoubleConv
 
 
-
 class FreqSS2D(nn.Module):
     def __init__(
             self,
@@ -169,4 +168,5 @@ class FreqMamba(nn.Module):
         hx = torch.cat([wx_lh, wx_hl, wx_hh], dim=1)
 
         return lx, hx
+
 
