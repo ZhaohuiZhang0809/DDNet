@@ -196,7 +196,7 @@ class SS2Dv1:
 
 
 
-# support: v0, v0seq, LASSM
+# LASSM
 class SS2Dv0:
     def __initv0__(
             self,
@@ -920,6 +920,7 @@ if __name__ == "__main__":
         
         
     calculate_fps(net, input_size=(96, 80, 80), batch_size=2, num_iterations=10)
+
 
 
 
