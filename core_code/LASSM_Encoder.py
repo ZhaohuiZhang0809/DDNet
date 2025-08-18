@@ -19,7 +19,7 @@ from models.configs.MambaScanner import mamba_init, MambaScanner
 from models.common import window_partition
 
 
-# SS2Dv1, localMamba
+# SS2Dv1
 class SS2Dv1:
     def __initv1__(
             self,
@@ -920,6 +920,7 @@ if __name__ == "__main__":
         
         
     calculate_fps(net, input_size=(96, 80, 80), batch_size=2, num_iterations=10)
+
 
 
 
